@@ -1,9 +1,12 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User, CreditBalance, CreditTransaction, UsageLog, FEATURE_COSTS
-import openai, json, re
+import openai, json, re, os
 
 features_bp = Blueprint("features", __name__, url_prefix="/api/features")
+
+def get_openai_key():
+    return os.getenv("OPENAI_API_KEY") or current_app.config.get("OPENAI_API_KEY")
 
 def deduct(user_id, feature):
     cost = FEATURE_COSTS.get(feature, 1)
@@ -21,22 +24,18 @@ def deduct(user_id, feature):
 @jwt_required()
 def viral_score():
     uid  = get_jwt_identity()
-    user = User.query.get(uid)
     data = request.get_json(silent=True) or {}
-    if not user.openai_api_key:
-        return jsonify({"error":"Add your OpenAI key in profile settings first","code":"NO_OPENAI_KEY"}), 400
     ok, err, code = deduct(uid, "viral_score")
     if not ok: return err, code
     try:
-        client = openai.OpenAI(api_key=user.openai_api_key)
+        client = openai.OpenAI(api_key=get_openai_key())
         topic  = data.get("topic","a general video")
         res    = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role":"user","content":f"""Analyze viral potential for a video about: "{topic}". 
 Respond ONLY in JSON: {{"total_score":75,"hook_score":20,"verdict":"Good potential","top_tips":["tip1","tip2","tip3"]}}"""}],
             temperature=0.3)
-        raw = res.choices[0].message.content.strip()
-        raw = re.sub(r"```json|```","",raw).strip()
+        raw = re.sub(r"```json|```","",res.choices[0].message.content.strip()).strip()
         return jsonify({"success":True,"result":json.loads(raw)}), 200
     except Exception as e:
         return jsonify({"success":True,"result":{"total_score":72,"verdict":"Analysis ready","top_tips":["Strong hook needed","Add captions","Keep under 60s"]}}), 200
@@ -45,14 +44,11 @@ Respond ONLY in JSON: {{"total_score":75,"hook_score":20,"verdict":"Good potenti
 @jwt_required()
 def script_writer():
     uid  = get_jwt_identity()
-    user = User.query.get(uid)
     data = request.get_json(silent=True) or {}
-    if not user.openai_api_key:
-        return jsonify({"error":"Add your OpenAI key in profile settings first"}), 400
     ok, err, code = deduct(uid, "script_writer")
     if not ok: return err, code
     try:
-        client = openai.OpenAI(api_key=user.openai_api_key)
+        client = openai.OpenAI(api_key=get_openai_key())
         res    = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role":"user","content":f"""Write a video script about: "{data.get("topic","")}" for {data.get("platform","YouTube")}.
@@ -67,14 +63,11 @@ Respond ONLY in JSON: {{"hook":"...","main":"...","cta":"...","full_script":"...
 @jwt_required()
 def hook_generator():
     uid  = get_jwt_identity()
-    user = User.query.get(uid)
     data = request.get_json(silent=True) or {}
-    if not user.openai_api_key:
-        return jsonify({"error":"Add your OpenAI key in profile settings first"}), 400
     ok, err, code = deduct(uid, "hook_generator")
     if not ok: return err, code
     try:
-        client = openai.OpenAI(api_key=user.openai_api_key)
+        client = openai.OpenAI(api_key=get_openai_key())
         res    = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role":"user","content":f"""Generate 5 hooks for video about: "{data.get("topic","")}".

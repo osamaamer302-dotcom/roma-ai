@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roma AI</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: Arial, sans-serif; background: #080808; color: #fff; }
+.nav { display:flex; justify-content:space-between; align-items:center; padding:20px 40px; border-bottom:1px solid #222; }
+.logo { font-size:22px; font-weight:800; color:#E63946; }
+.hero { text-align:center; padding:100px 40px; }
+.hero h1 { font-size:60px; font-weight:800; margin-bottom:20px; }
+.hero h1 span { color:#E63946; }
+.hero p { font-size:18px; color:#888; margin-bottom:40px; }
+.btn { background:#E63946; color:#fff; border:none; padding:14px 32px; border-radius:10px; font-size:16px; cursor:pointer; }
+.form-box { max-width:400px; margin:0 auto; background:#141414; border:1px solid #222; border-radius:16px; padding:40px; }
+.form-box h2 { margin-bottom:24px; text-align:center; }
+.input { width:100%; background:#1e1e1e; border:1px solid #333; color:#fff; padding:12px 16px; border-radius:10px; font-size:14px; margin-bottom:16px; }
+.btn-full { width:100%; background:#E63946; color:#fff; border:none; padding:14px; border-radius:10px; font-size:16px; cursor:pointer; margin-bottom:16px; }
+.msg { text-align:center; font-size:14px; color:#888; margin-top:12px; }
+.msg a { color:#E63946; cursor:pointer; }
+.credits-box { text-align:center; padding:20px; background:#141414; border-radius:12px; margin:20px auto; max-width:300px; display:none; }
+.credits-num { font-size:48px; font-weight:800; color:#E63946; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="logo">🎬 Roma AI</div>
+  <div id="nav-btns">
+    <button class="btn" onclick="showLogin()" style="margin-left:10px; background:none; border:1px solid #333; color:#fff; padding:10px 20px; border-radius:8px; cursor:pointer;">دخول</button>
+    <button class="btn" onclick="showRegister()" style="margin-right:10px;">ابدأ مجاناً</button>
+  </div>
+  <div id="nav-user" style="display:none;">
+    <span id="user-email" style="color:#888; margin-left:16px;"></span>
+    <button onclick="logout()" style="background:none; border:1px solid #333; color:#fff; padding:8px 16px; border-radius:8px; cursor:pointer;">خروج</button>
+  </div>
+</nav>
+
+<!-- Hero -->
+<div id="page-hero">
+  <div class="hero">
+    <h1>أنتج فيديو <span>احترافي</span><br>في ثوانٍ</h1>
+    <p>مونتاج ذكي بالكامل — 22 أداة AI في مكان واحد</p>
+    <button class="btn" onclick="showRegister()">ابدأ مجاناً — 20 كريدت مجاني ←</button>
+  </div>
+</div>
+
+<!-- Register -->
+<div id="page-register" style="display:none; padding:60px 20px;">
+  <div class="form-box">
+    <h2>إنشاء حساب</h2>
+    <input class="input" id="reg-name" type="text" placeholder="الاسم">
+    <input class="input" id="reg-email" type="email" placeholder="الإيميل">
+    <input class="input" id="reg-password" type="password" placeholder="كلمة السر (8 أحرف على الأقل)">
+    <button class="btn-full" onclick="register()">إنشاء حساب</button>
+    <div id="reg-msg" style="color:#E63946; text-align:center; font-size:14px;"></div>
+    <div class="msg">عندك حساب؟ <a onclick="showLogin()">سجل دخول</a></div>
+  </div>
+</div>
+
+<!-- Login -->
+<div id="page-login" style="display:none; padding:60px 20px;">
+  <div class="form-box">
+    <h2>تسجيل الدخول</h2>
+    <input class="input" id="login-email" type="email" placeholder="الإيميل">
+    <input class="input" id="login-password" type="password" placeholder="كلمة السر">
+    <button class="btn-full" onclick="login()">دخول</button>
+    <div id="login-msg" style="color:#E63946; text-align:center; font-size:14px;"></div>
+    <div class="msg">مش عندك حساب؟ <a onclick="showRegister()">سجل الآن</a></div>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div id="page-dashboard" style="display:none; padding:60px 20px; text-align:center;">
+  <h2 style="margin-bottom:20px;">أهلاً <span id="dash-name" style="color:#E63946;"></span> 👋</h2>
+  <div class="credits-box" style="display:block;">
+    <div style="font-size:14px; color:#888; margin-bottom:8px;">كريدت متبقي</div>
+    <div class="credits-num" id="dash-credits">0</div>
+    <div style="font-size:12px; color:#555; margin-top:8px;">كريدت</div>
+  </div>
+  <p style="color:#888; margin-top:20px;">🎉 حسابك شغال! قريباً هتقدر تستخدم كل أدوات Roma AI من هنا.</p>
+</div>
+
+<script>
+const API = 'https://bountiful-comfort-production-fc97.up.railway.app';
+
+function showLogin() {
+  document.getElementById('page-hero').style.display = 'none';
+  document.getElementById('page-register').style.display = 'none';
+  document.getElementById('page-dashboard').style.display = 'none';
+  document.getElementById('page-login').style.display = 'block';
+}
+
+function showRegister() {
+  document.getElementById('page-hero').style.display = 'none';
+  document.getElementById('page-login').style.display = 'none';
+  document.getElementById('page-dashboard').style.display = 'none';
+  document.getElementById('page-register').style.display = 'block';
+}
+
+function showDashboard(user, credits) {
+  document.getElementById('page-hero').style.display = 'none';
+  document.getElementById('page-login').style.display = 'none';
+  document.getElementById('page-register').style.display = 'none';
+  document.getElementById('page-dashboard').style.display = 'block';
+  document.getElementById('dash-name').innerText = user.full_name || user.email;
+  document.getElementById('dash-credits').innerText = credits.balance;
+  document.getElementById('nav-btns').style.display = 'none';
+  document.getElementById('nav-user').style.display = 'flex';
+  document.getElementById('user-email').innerText = user.email;
+}
+
+async function register() {
+  const name = document.getElementById('reg-name').value;
+  const email = document.getElementById('reg-email').value;
+  const password = document.getElementById('reg-password').value;
+  const msg = document.getElementById('reg-msg');
+  msg.innerText = 'جاري إنشاء الحساب...';
+  try {
+    const res = await fetch(API + '/api/auth/register', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({full_name: name, email, password})
+    });
+    const data = await res.json();
+    if (res.ok) {
+      localStorage.setItem('token', data.access_token);
+      showDashboard(data.user, data.credits);
+    } else {
+      msg.innerText = data.error || 'حدث خطأ';
+    }
+  } catch(e) {
+    msg.innerText = 'تعذر الاتصال بالسيرفر';
+  }
+}
+
+async function login() {
+  const email = document.getElementById('login-email').value;
+  const password = document.getElementById('login-password').value;
+  const msg = document.getElementById('login-msg');
+  msg.innerText = 'جاري تسجيل الدخول...';
+  try {
+    const res = await fetch(API + '/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, password})
+    });
+    const data = await res.json();
+    if (res.ok) {
+      localStorage.setItem('token', data.access_token);
+      showDashboard(data.user, data.credits);
+    } else {
+      msg.innerText = data.error || 'إيميل أو كلمة سر غلط';
+    }
+  } catch(e) {
+    msg.innerText = 'تعذر الاتصال بالسيرفر';
+  }
+}
+
+function logout() {
+  localStorage.removeItem('token');
+  location.reload();
+}
+</script>
+</body>
+</html>
