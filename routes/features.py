@@ -89,9 +89,9 @@ def analytics():
 @features_bp.route("/remove-silence", methods=["POST"])
 @jwt_required()
 def remove_silence():
-    import imageio_ffmpeg
-    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-    ffprobe_exe = "ffprobe"  # Use system ffprobe installed via nixpacks
+    import imageio_ffmpeg, shutil
+    ffmpeg_exe  = imageio_ffmpeg.get_ffmpeg_exe()
+    ffprobe_exe = shutil.which("ffprobe") or os.path.join(os.path.dirname(ffmpeg_exe), "ffprobe")
 
     uid = get_jwt_identity()
 
