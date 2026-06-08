@@ -91,7 +91,7 @@ def analytics():
 def remove_silence():
     import imageio_ffmpeg
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-    ffprobe_exe = ffmpeg_exe.replace("ffmpeg", "ffprobe")
+    ffprobe_exe = "ffprobe"  # Use system ffprobe installed via nixpacks
 
     uid = get_jwt_identity()
 
