@@ -89,6 +89,10 @@ def analytics():
 @features_bp.route("/remove-silence", methods=["POST"])
 @jwt_required()
 def remove_silence():
+    import imageio_ffmpeg
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    ffprobe_exe = ffmpeg_exe.replace("ffmpeg", "ffprobe")
+
     uid = get_jwt_identity()
 
     if "video" not in request.files:
@@ -105,15 +109,13 @@ def remove_silence():
     output_path = input_path.replace(".mp4", "_out.mp4")
 
     try:
-        # Step 1: Extract audio
         subprocess.run([
-            "ffmpeg", "-y", "-i", input_path,
+            ffmpeg_exe, "-y", "-i", input_path,
             "-ac", "1", "-ar", "16000", audio_path
         ], check=True, capture_output=True)
 
-        # Step 2: Detect silence
         result = subprocess.run([
-            "ffmpeg", "-i", audio_path,
+            ffmpeg_exe, "-i", audio_path,
             "-af", f"silencedetect=noise=-30dB:d={threshold}",
             "-f", "null", "-"
         ], capture_output=True, text=True)
@@ -122,7 +124,6 @@ def remove_silence():
         silence_starts = [float(x) for x in re.findall(r"silence_start: (\S+)", output)]
         silence_ends   = [float(x) for x in re.findall(r"silence_end: (\S+)", output)]
 
-        # Step 3: Build keep segments
         keep = []
         prev = 0.0
         for s, e in zip(silence_starts, silence_ends):
@@ -130,10 +131,10 @@ def remove_silence():
                 keep.append((prev, s))
             prev = e
 
-        # Get video duration
         dur_result = subprocess.run([
-            "ffprobe", "-v", "error", "-show_entries",
-            "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+            ffprobe_exe, "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
             input_path
         ], capture_output=True, text=True)
         duration = float(dur_result.stdout.strip())
@@ -143,12 +144,11 @@ def remove_silence():
         if not keep:
             return jsonify({"error": "No speech detected"}), 400
 
-        # Step 4: Cut video
         vf = "+".join([f"between(t,{s},{e})" for s, e in keep])
         fc = f"[0:v]select='{vf}',setpts=N/FRAME_RATE/TB[v];[0:a]aselect='{vf}',asetpts=N/SR/TB[a]"
 
         subprocess.run([
-            "ffmpeg", "-y", "-i", input_path,
+            ffmpeg_exe, "-y", "-i", input_path,
             "-filter_complex", fc,
             "-map", "[v]", "-map", "[a]",
             output_path
@@ -223,6 +223,9 @@ def auto_caption():
 @features_bp.route("/burn-captions", methods=["POST"])
 @jwt_required()
 def burn_captions():
+    import imageio_ffmpeg
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
     uid = get_jwt_identity()
 
     if "video" not in request.files:
@@ -245,7 +248,7 @@ def burn_captions():
             f.write(srt_content)
 
         subprocess.run([
-            "ffmpeg", "-y", "-i", input_path,
+            ffmpeg_exe, "-y", "-i", input_path,
             "-vf", f"subtitles={srt_path}:force_style='FontSize={font_size},PrimaryColour=&H{color}&,Outline=2,Shadow=1'",
             "-c:a", "copy",
             output_path
