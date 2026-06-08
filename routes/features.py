@@ -1,7 +1,7 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file, Response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import db, User, CreditBalance, CreditTransaction, UsageLog, FEATURE_COSTS
-import openai, json, re, os
+import openai, json, re, os, tempfile, subprocess
 
 features_bp = Blueprint("features", __name__, url_prefix="/api/features")
 
@@ -32,8 +32,7 @@ def viral_score():
         topic  = data.get("topic","a general video")
         res    = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content":f"""Analyze viral potential for a video about: "{topic}". 
-Respond ONLY in JSON: {{"total_score":75,"hook_score":20,"verdict":"Good potential","top_tips":["tip1","tip2","tip3"]}}"""}],
+            messages=[{"role":"user","content":f"""Analyze viral potential for a video about: "{topic}". Respond ONLY in JSON: {{"total_score":75,"hook_score":20,"verdict":"Good potential","top_tips":["tip1","tip2","tip3"]}}"""}],
             temperature=0.3)
         raw = re.sub(r"```json|```","",res.choices[0].message.content.strip()).strip()
         return jsonify({"success":True,"result":json.loads(raw)}), 200
@@ -51,8 +50,7 @@ def script_writer():
         client = openai.OpenAI(api_key=get_openai_key())
         res    = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content":f"""Write a video script about: "{data.get("topic","")}" for {data.get("platform","YouTube")}.
-Respond ONLY in JSON: {{"hook":"...","main":"...","cta":"...","full_script":"..."}}"""}],
+            messages=[{"role":"user","content":f"""Write a video script about: "{data.get("topic","")}" for {data.get("platform","YouTube")}. Respond ONLY in JSON: {{"hook":"...","main":"...","cta":"...","full_script":"..."}}"""}],
             temperature=0.7)
         raw = re.sub(r"```json|```","",res.choices[0].message.content.strip()).strip()
         return jsonify({"success":True,"result":json.loads(raw)}), 200
@@ -70,8 +68,7 @@ def hook_generator():
         client = openai.OpenAI(api_key=get_openai_key())
         res    = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role":"user","content":f"""Generate 5 hooks for video about: "{data.get("topic","")}".
-Respond ONLY in JSON: {{"hooks":[{{"text":"...","score":8}}],"best_hook":"..."}}"""}],
+            messages=[{"role":"user","content":f"""Generate 5 hooks for video about: "{data.get("topic","")}". Respond ONLY in JSON: {{"hooks":[{{"text":"...","score":8}}],"best_hook":"..."}}"""}],
             temperature=0.8)
         raw = re.sub(r"```json|```","",res.choices[0].message.content.strip()).strip()
         return jsonify({"success":True,"result":json.loads(raw)}), 200
@@ -87,3 +84,183 @@ def analytics():
     counts = Counter(l.feature for l in logs)
     return jsonify({"total_operations":len(logs),"total_credits_used":sum(l.credits_used for l in logs),
                     "feature_breakdown":dict(counts),"recent":[l.to_dict() for l in logs[:20]]}), 200
+
+
+@features_bp.route("/remove-silence", methods=["POST"])
+@jwt_required()
+def remove_silence():
+    uid = get_jwt_identity()
+
+    if "video" not in request.files:
+        return jsonify({"error": "No video file uploaded"}), 400
+
+    video_file = request.files["video"]
+    threshold  = float(request.form.get("threshold", 0.5))
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_in:
+        video_file.save(tmp_in.name)
+        input_path = tmp_in.name
+
+    audio_path  = input_path.replace(".mp4", ".wav")
+    output_path = input_path.replace(".mp4", "_out.mp4")
+
+    try:
+        # Step 1: Extract audio
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-ac", "1", "-ar", "16000", audio_path
+        ], check=True, capture_output=True)
+
+        # Step 2: Detect silence
+        result = subprocess.run([
+            "ffmpeg", "-i", audio_path,
+            "-af", f"silencedetect=noise=-30dB:d={threshold}",
+            "-f", "null", "-"
+        ], capture_output=True, text=True)
+
+        output = result.stderr
+        silence_starts = [float(x) for x in re.findall(r"silence_start: (\S+)", output)]
+        silence_ends   = [float(x) for x in re.findall(r"silence_end: (\S+)", output)]
+
+        # Step 3: Build keep segments
+        keep = []
+        prev = 0.0
+        for s, e in zip(silence_starts, silence_ends):
+            if s > prev:
+                keep.append((prev, s))
+            prev = e
+
+        # Get video duration
+        dur_result = subprocess.run([
+            "ffprobe", "-v", "error", "-show_entries",
+            "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+            input_path
+        ], capture_output=True, text=True)
+        duration = float(dur_result.stdout.strip())
+        if prev < duration:
+            keep.append((prev, duration))
+
+        if not keep:
+            return jsonify({"error": "No speech detected"}), 400
+
+        # Step 4: Cut video
+        vf = "+".join([f"between(t,{s},{e})" for s, e in keep])
+        fc = f"[0:v]select='{vf}',setpts=N/FRAME_RATE/TB[v];[0:a]aselect='{vf}',asetpts=N/SR/TB[a]"
+
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-filter_complex", fc,
+            "-map", "[v]", "-map", "[a]",
+            output_path
+        ], check=True, capture_output=True)
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name="removed_silence.mp4",
+            mimetype="video/mp4"
+        )
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        for f in [input_path, audio_path]:
+            if os.path.exists(f):
+                os.remove(f)
+
+
+@features_bp.route("/auto-caption", methods=["POST"])
+@jwt_required()
+def auto_caption():
+    uid = get_jwt_identity()
+
+    if "video" not in request.files:
+        return jsonify({"error": "No video file uploaded"}), 400
+
+    video_file = request.files["video"]
+    language   = request.form.get("language", "auto")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_in:
+        video_file.save(tmp_in.name)
+        input_path = tmp_in.name
+
+    try:
+        from faster_whisper import WhisperModel
+        model = WhisperModel("base", device="cpu", compute_type="int8")
+
+        lang = None if language == "auto" else language
+        segments, info = model.transcribe(input_path, language=lang)
+
+        def format_time(seconds):
+            h  = int(seconds // 3600)
+            m  = int((seconds % 3600) // 60)
+            s  = int(seconds % 60)
+            ms = int((seconds % 1) * 1000)
+            return f"{h:02}:{m:02}:{s:02},{ms:03}"
+
+        srt_lines = []
+        for i, seg in enumerate(segments, 1):
+            start = format_time(seg.start)
+            end   = format_time(seg.end)
+            text  = seg.text.strip()
+            srt_lines.append(f"{i}\n{start} --> {end}\n{text}\n")
+
+        srt_content = "\n".join(srt_lines)
+
+        return Response(
+            srt_content,
+            mimetype="text/plain",
+            headers={"Content-Disposition": "attachment; filename=captions.srt"}
+        )
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if os.path.exists(input_path):
+            os.remove(input_path)
+
+
+@features_bp.route("/burn-captions", methods=["POST"])
+@jwt_required()
+def burn_captions():
+    uid = get_jwt_identity()
+
+    if "video" not in request.files:
+        return jsonify({"error": "No video file uploaded"}), 400
+
+    video_file  = request.files["video"]
+    srt_content = request.form.get("srt", "")
+    font_size   = request.form.get("font_size", "24")
+    color       = request.form.get("color", "#FFFFFF").replace("#", "")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_in:
+        video_file.save(tmp_in.name)
+        input_path = tmp_in.name
+
+    srt_path    = input_path.replace(".mp4", ".srt")
+    output_path = input_path.replace(".mp4", "_captioned.mp4")
+
+    try:
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write(srt_content)
+
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-vf", f"subtitles={srt_path}:force_style='FontSize={font_size},PrimaryColour=&H{color}&,Outline=2,Shadow=1'",
+            "-c:a", "copy",
+            output_path
+        ], check=True, capture_output=True)
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name="captioned_video.mp4",
+            mimetype="video/mp4"
+        )
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        for f in [input_path, srt_path]:
+            if os.path.exists(f):
+                os.remove(f)
